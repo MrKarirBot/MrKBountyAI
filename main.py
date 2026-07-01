@@ -4,13 +4,19 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
+    MessageHandler,
     CallbackQueryHandler,
     ContextTypes,
+    filters,
 )
+from google import genai
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 def main_menu():
@@ -24,28 +30,23 @@ def main_menu():
             InlineKeyboardButton("📝 Report", callback_data="report"),
         ],
         [
+            InlineKeyboardButton("🤖 AI Mentor", callback_data="ai_mentor"),
             InlineKeyboardButton("🛠 Tools", callback_data="tools"),
-            InlineKeyboardButton("ℹ️ About", callback_data="about"),
         ],
         [
+            InlineKeyboardButton("ℹ️ About", callback_data="about"),
             InlineKeyboardButton("❓ Help", callback_data="help"),
         ],
     ]
-
     return InlineKeyboardMarkup(keyboard)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = (
-        "🛡 Welcome to MrKBountyAI!\n\n"
-        "AI-powered assistant for ethical hackers, bug bounty hunters, "
-        "and cybersecurity learners.\n\n"
-        "Pilih menu di bawah ini:"
-    )
-
     await update.message.reply_text(
-        message,
-        reply_markup=main_menu()
+        "🛡 Welcome to MrKBountyAI!\n\n"
+        "AI assistant for ethical hackers, bug bounty hunters, and cybersecurity learners.\n\n"
+        "Pilih menu di bawah ini:",
+        reply_markup=main_menu(),
     )
 
 
@@ -55,20 +56,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data = query.data
 
-    if data == "learn":
-        text = (
+    responses = {
+        "learn": (
             "📚 Learn Bug Bounty\n\n"
-            "Materi awal:\n"
             "1. HTTP & HTTPS\n"
             "2. DNS & Subdomain\n"
             "3. OWASP Top 10\n"
             "4. Burp Suite dasar\n"
-            "5. Responsible Disclosure\n\n"
-            "Fokus utama: belajar legal, aman, dan sesuai scope."
-        )
-
-    elif data == "owasp":
-        text = (
+            "5. Responsible Disclosure"
+        ),
+        "owasp": (
             "🛡 OWASP Top 10\n\n"
             "1. Broken Access Control\n"
             "2. Cryptographic Failures\n"
@@ -80,10 +77,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "8. Software & Data Integrity Failures\n"
             "9. Logging & Monitoring Failures\n"
             "10. SSRF"
-        )
-
-    elif data == "checklist":
-        text = (
+        ),
+        "checklist": (
             "✅ Security Checklist\n\n"
             "1. Baca scope program\n"
             "2. Uji hanya target yang diizinkan\n"
@@ -91,12 +86,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "4. Cek access control\n"
             "5. Cek upload file\n"
             "6. Cek endpoint API\n"
-            "7. Simpan bukti dengan rapi\n"
-            "8. Laporkan secara bertanggung jawab"
-        )
-
-    elif data == "report":
-        text = (
+            "7. Simpan bukti\n"
+            "8. Laporkan dengan responsible disclosure"
+        ),
+        "report": (
             "📝 Bug Report Template\n\n"
             "Title:\n"
             "Summary:\n"
@@ -105,52 +98,86 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Impact:\n"
             "Evidence:\n"
             "Recommendation:"
-        )
-
-    elif data == "tools":
-        text = (
+        ),
+        "ai_mentor": (
+            "🤖 AI Mentor aktif.\n\n"
+            "Ketik pertanyaan kamu langsung di chat.\n\n"
+            "Contoh:\n"
+            "Apa itu IDOR?\n"
+            "Jelaskan SSRF dengan analogi sederhana.\n"
+            "Buat checklist XSS untuk pemula."
+        ),
+        "tools": (
             "🛠 Tools Reference\n\n"
-            "Rekomendasi belajar:\n"
             "• Burp Suite\n"
             "• OWASP ZAP\n"
             "• Nmap\n"
             "• Wireshark\n"
             "• Postman\n\n"
             "Gunakan hanya pada target yang punya izin resmi."
-        )
-
-    elif data == "about":
-        text = (
+        ),
+        "about": (
             "ℹ️ About MrKBountyAI\n\n"
-            "MrKBountyAI adalah bot pembelajaran dan produktivitas "
-            "untuk ethical hacking dan bug bounty.\n\n"
-            "Tujuan:\n"
-            "• Belajar cybersecurity\n"
-            "• Membuat checklist\n"
-            "• Menyusun laporan\n"
-            "• Memahami OWASP\n\n"
+            "Bot pembelajaran dan produktivitas untuk ethical hacking, "
+            "bug bounty, dan cybersecurity.\n\n"
             "⚠️ Untuk edukasi dan authorized testing only."
-        )
-
-    else:
-        text = (
+        ),
+        "help": (
             "❓ Help\n\n"
-            "Gunakan /start untuk membuka menu utama.\n\n"
-            "Perintah tersedia:\n"
-            "/start\n"
-            "/help"
-        )
+            "Gunakan /start untuk membuka menu.\n"
+            "Ketik pertanyaan apa pun untuk AI Mentor."
+        ),
+    }
 
     await query.edit_message_text(
-        text=text,
-        reply_markup=main_menu()
+        text=responses.get(data, "Menu tidak ditemukan."),
+        reply_markup=main_menu(),
     )
+
+
+async def ai_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = update.message.text
+
+    if not GEMINI_API_KEY:
+        await update.message.reply_text(
+            "⚠️ GEMINI_API_KEY belum diatur di Railway Variables."
+        )
+        return
+
+    prompt = f"""
+Kamu adalah MrKBountyAI, mentor cybersecurity dan bug bounty yang legal, aman, dan edukatif.
+
+Aturan:
+- Jawab dalam bahasa Indonesia.
+- Fokus pada pembelajaran, defensive security, authorized testing, dan responsible disclosure.
+- Jangan memberi instruksi eksploitasi ilegal, pencurian data, bypass akses, malware, phishing, atau penyalahgunaan.
+- Jika pertanyaan berisiko, arahkan ke konsep aman, mitigasi, lab legal, atau checklist etis.
+- Jawaban harus ringkas, jelas, dan praktis.
+
+Pertanyaan user:
+{user_text}
+"""
+
+    try:
+        response = ai_client.models.generate_content(
+            model="gemini-3.5-flash",
+            contents=prompt,
+        )
+
+        answer = response.text or "Maaf, AI tidak memberikan jawaban."
+        await update.message.reply_text(answer[:4000])
+
+    except Exception as error:
+        await update.message.reply_text(
+            f"⚠️ AI error:\n{error}"
+        )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "❓ Help\n\n"
-        "Gunakan /start untuk membuka menu utama MrKBountyAI."
+        "Gunakan /start untuk membuka menu.\n"
+        "Ketik pertanyaan langsung untuk memakai AI Mentor."
     )
 
 
@@ -163,8 +190,9 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_mentor))
 
-    print("MrKBountyAI is running...")
+    print("MrKBountyAI is running with AI Mentor...")
     app.run_polling()
 
 

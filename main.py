@@ -1,4 +1,5 @@
 import os
+import asyncio
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -9,14 +10,16 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-from google import genai
+from groq import Groq
 
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-ai_client = genai.Client(api_key=GEMINI_API_KEY)
+AI_MODEL = "llama-3.1-8b-instant"
+
+ai_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 
 def main_menu():
@@ -53,8 +56,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
-    data = query.data
 
     responses = {
         "learn": (
@@ -101,11 +102,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ),
         "ai_mentor": (
             "🤖 AI Mentor aktif.\n\n"
-            "Ketik pertanyaan kamu langsung di chat.\n\n"
+            "Ketik pertanyaan langsung di chat.\n\n"
             "Contoh:\n"
-            "Apa itu IDOR?\n"
-            "Jelaskan SSRF dengan analogi sederhana.\n"
-            "Buat checklist XSS untuk pemula."
+            "• Apa itu IDOR?\n"
+            "• Jelaskan SSRF dengan analogi sederhana.\n"
+            "• Buat checklist XSS untuk pemula."
         ),
         "tools": (
             "🛠 Tools Reference\n\n"
@@ -130,46 +131,80 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
 
     await query.edit_message_text(
-        text=responses.get(data, "Menu tidak ditemukan."),
+        text=responses.get(query.data, "Menu tidak ditemukan."),
         reply_markup=main_menu(),
     )
 
 
-async def ai_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = update.message.text
+def build_ai_messages(user_text: str):
+    return [
+        {
+            "role": "system",
+            "content": (
+                "Kamu adalah MrKBountyAI, mentor cybersecurity dan bug bounty "
+                "yang legal, aman, dan edukatif. Jawab dalam bahasa Indonesia. "
+                "Fokus pada pembelajaran, defensive security, authorized testing, "
+                "dan responsible disclosure. Jangan memberi instruksi eksploitasi ilegal, "
+                "pencurian data, bypass akses, malware, phishing, atau penyalahgunaan. "
+                "Jika pertanyaan berisiko, arahkan ke konsep aman, mitigasi, lab legal, "
+                "atau checklist etis. Jawaban harus ringkas, praktis, dan mudah dipahami."
+            ),
+        },
+        {
+            "role": "user",
+            "content": user_text,
+        },
+    ]
 
-    if not GEMINI_API_KEY:
+
+async def generate_ai_answer(user_text: str) -> str:
+    last_error = None
+
+    for attempt in range(3):
+        try:
+            response = ai_client.chat.completions.create(
+                model=AI_MODEL,
+                messages=build_ai_messages(user_text),
+                temperature=0.4,
+                max_tokens=900,
+            )
+
+            return response.choices[0].message.content or "Maaf, AI tidak memberi jawaban."
+
+        except Exception as error:
+            last_error = str(error)
+            await asyncio.sleep(1 + attempt)
+
+    return (
+        "⚠️ AI Mentor sedang sibuk atau terkena limit sementara.\n\n"
+        "Coba ulangi beberapa saat lagi.\n\n"
+        f"Detail singkat: {last_error[:300]}"
+    )
+
+
+async def ai_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_text = update.message.text.strip()
+
+    if not ai_client:
         await update.message.reply_text(
-            "⚠️ GEMINI_API_KEY belum diatur di Railway Variables."
+            "⚠️ GROQ_API_KEY belum diatur di Railway Variables."
         )
         return
 
-    prompt = f"""
-Kamu adalah MrKBountyAI, mentor cybersecurity dan bug bounty yang legal, aman, dan edukatif.
-
-Aturan:
-- Jawab dalam bahasa Indonesia.
-- Fokus pada pembelajaran, defensive security, authorized testing, dan responsible disclosure.
-- Jangan memberi instruksi eksploitasi ilegal, pencurian data, bypass akses, malware, phishing, atau penyalahgunaan.
-- Jika pertanyaan berisiko, arahkan ke konsep aman, mitigasi, lab legal, atau checklist etis.
-- Jawaban harus ringkas, jelas, dan praktis.
-
-Pertanyaan user:
-{user_text}
-"""
+    thinking_message = await update.message.reply_text("🤖 Sedang berpikir...")
 
     try:
-        response = ai_client.models.generate_content(
-            model="gemini-3.5-flash",
-            contents=prompt,
-        )
+        answer = await generate_ai_answer(user_text)
 
-        answer = response.text or "Maaf, AI tidak memberikan jawaban."
-        await update.message.reply_text(answer[:4000])
+        if len(answer) > 3900:
+            answer = answer[:3900] + "\n\n...jawaban dipotong karena terlalu panjang."
+
+        await thinking_message.edit_text(answer)
 
     except Exception as error:
-        await update.message.reply_text(
-            f"⚠️ AI error:\n{error}"
+        await thinking_message.edit_text(
+            "⚠️ AI Mentor sedang bermasalah.\n\n"
+            f"Detail error:\n{error}"
         )
 
 
@@ -183,7 +218,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     if not BOT_TOKEN:
-        raise ValueError("BOT_TOKEN is missing. Set it in environment variables.")
+        raise ValueError("BOT_TOKEN is missing. Set it in Railway Variables.")
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -192,7 +227,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_mentor))
 
-    print("MrKBountyAI is running with AI Mentor...")
+    print("MrKBountyAI is running with Groq AI Mentor...")
     app.run_polling()
 
 

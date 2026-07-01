@@ -14,6 +14,7 @@ from groq import Groq
 
 from app.database.database import init_database
 from app.database.memory import save_message, get_history
+from app.services.agent import detect_intent, build_agent_prompt
 
 load_dotenv()
 
@@ -42,9 +43,10 @@ def main_menu():
         ],
         [
             InlineKeyboardButton("🧠 Memory", callback_data="memory"),
-            InlineKeyboardButton("ℹ️ About", callback_data="about"),
+            InlineKeyboardButton("🧭 Agent", callback_data="agent"),
         ],
         [
+            InlineKeyboardButton("ℹ️ About", callback_data="about"),
             InlineKeyboardButton("❓ Help", callback_data="help"),
         ],
     ]
@@ -55,7 +57,7 @@ def main_menu():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🛡 Welcome to MrKBountyAI!\n\n"
-        "AI assistant for ethical hackers, bug bounty hunters, and cybersecurity learners.\n\n"
+        "AI Agent for ethical hackers, bug bounty hunters, and cybersecurity learners.\n\n"
         "Pilih menu di bawah ini:",
         reply_markup=main_menu(),
     )
@@ -113,9 +115,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Ketik pertanyaan langsung di chat.\n\n"
             "Contoh:\n"
             "• Apa itu IDOR?\n"
-            "• Nama saya Kusnadi.\n"
-            "• Siapa nama saya?\n"
-            "• Jelaskan SSRF dengan analogi sederhana."
+            "• Jelaskan SSRF dengan analogi sederhana.\n"
+            "• Buat checklist XSS untuk pemula."
         ),
         "tools": (
             "🛠 Tools Reference\n\n"
@@ -128,21 +129,30 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ),
         "memory": (
             "🧠 Memory AI aktif.\n\n"
-            "Percakapan akan disimpan ke PostgreSQL agar bot bisa mengingat konteks.\n\n"
+            "Percakapan disimpan ke PostgreSQL agar bot bisa mengingat konteks.\n\n"
             "Tes:\n"
             "1. Ketik: Nama saya Kusnadi.\n"
-            "2. Lalu ketik: Siapa nama saya?"
+            "2. Ketik: Siapa nama saya?"
+        ),
+        "agent": (
+            "🧭 AI Agent aktif.\n\n"
+            "Bot sekarang bisa mendeteksi maksud pertanyaan otomatis.\n\n"
+            "Contoh:\n"
+            "• Apa itu XSS?\n"
+            "• Buat checklist pengujian IDOR.\n"
+            "• Buat bug report untuk Broken Access Control.\n"
+            "• Jelaskan OWASP Top 10."
         ),
         "about": (
             "ℹ️ About MrKBountyAI\n\n"
-            "Bot AI untuk belajar ethical hacking, bug bounty, OWASP, dan cybersecurity.\n\n"
+            "MrKBountyAI adalah AI Agent untuk belajar ethical hacking, bug bounty, OWASP, dan cybersecurity.\n\n"
             "⚠️ Edukasi dan authorized testing only."
         ),
         "help": (
             "❓ Help\n\n"
             "/start - Menu utama\n"
             "/help - Bantuan\n\n"
-            "Ketik pertanyaan langsung untuk memakai AI Mentor."
+            "Ketik pertanyaan langsung untuk memakai AI Agent."
         ),
     }
 
@@ -153,17 +163,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def build_ai_messages(user_id: int, user_text: str):
+    intent = detect_intent(user_text)
+
     system_message = {
         "role": "system",
-        "content": (
-            "Kamu adalah MrKBountyAI, mentor cybersecurity dan bug bounty yang legal, aman, dan edukatif. "
-            "Jawab dalam bahasa Indonesia. "
-            "Fokus pada pembelajaran, defensive security, authorized testing, dan responsible disclosure. "
-            "Jangan memberi instruksi eksploitasi ilegal, pencurian data, bypass akses, malware, phishing, "
-            "atau penyalahgunaan. Jika pertanyaan berisiko, arahkan ke konsep aman, mitigasi, lab legal, "
-            "atau checklist etis. "
-            "Jawaban harus ringkas, praktis, dan mudah dipahami."
-        ),
+        "content": build_agent_prompt(intent, user_text),
     }
 
     history = get_history(user_id, limit=10)
@@ -194,9 +198,11 @@ async def generate_ai_answer(user_id: int, user_text: str) -> str:
 
     for attempt in range(3):
         try:
+            messages = build_ai_messages(user_id, user_text)
+
             response = ai_client.chat.completions.create(
                 model=AI_MODEL,
-                messages=build_ai_messages(user_id, user_text),
+                messages=messages,
                 temperature=0.4,
                 max_tokens=900,
             )
@@ -208,7 +214,7 @@ async def generate_ai_answer(user_id: int, user_text: str) -> str:
             await asyncio.sleep(1 + attempt)
 
     return (
-        "⚠️ AI Mentor sedang sibuk atau terkena limit sementara.\n\n"
+        "⚠️ AI Agent sedang sibuk atau terkena limit sementara.\n\n"
         f"Detail singkat: {last_error[:300]}"
     )
 
@@ -223,7 +229,7 @@ async def ai_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    thinking_message = await update.message.reply_text("🤖 Sedang berpikir...")
+    thinking_message = await update.message.reply_text("🤖 Agent sedang menganalisis...")
 
     try:
         answer = await generate_ai_answer(user_id, user_text)
@@ -238,7 +244,7 @@ async def ai_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as error:
         await thinking_message.edit_text(
-            "⚠️ AI Mentor error.\n\n"
+            "⚠️ AI Agent error.\n\n"
             f"Detail:\n{error}"
         )
 
@@ -248,7 +254,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "❓ Help\n\n"
         "/start - Menu utama\n"
         "/help - Bantuan\n\n"
-        "Ketik pertanyaan langsung untuk memakai AI Mentor."
+        "Ketik pertanyaan langsung untuk memakai AI Agent."
     )
 
 
@@ -265,7 +271,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_mentor))
 
-    print("MrKBountyAI is running with PostgreSQL Memory AI...")
+    print("MrKBountyAI is running with AI Agent and PostgreSQL Memory...")
     app.run_polling()
 
 

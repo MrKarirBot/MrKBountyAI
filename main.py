@@ -1,6 +1,7 @@
 import os
 import asyncio
 from dotenv import load_dotenv
+from app.tools.url_scanner import analyze_url_security
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -235,7 +236,32 @@ async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await thinking_message.edit_text(result)
 
+async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text(
+            "Gunakan:\n\n"
+            "/scan https://example.com"
+        )
+        return
 
+    url = context.args[0]
+
+    loading = await update.message.reply_text(
+        "🔍 Security Copilot sedang menganalisis target..."
+    )
+
+    try:
+        result = analyze_url_security(url)
+
+        if len(result) > MAX_TELEGRAM_MESSAGE:
+            result = result[:MAX_TELEGRAM_MESSAGE]
+
+        await loading.edit_text(result)
+
+    except Exception as e:
+        await loading.edit_text(
+            f"❌ Scan gagal.\n\n{e}"
+        )
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "❓ Help\n\n"
@@ -256,10 +282,17 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("scan", scan_command))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_mentor))
+app.add_handler(CommandHandler("help", help_command))
+app.add_handler(CommandHandler("scan", scan_command))
+
+app.add_handler(CallbackQueryHandler(button_handler))
+
+app.add_handler(
+    MessageHandler(
+        filters.TEXT & ~filters.COMMAND,
+        ai_mentor,
+    )
+    )
 
     print("MrKBountyAI is running with Security Copilot URL Scanner...")
     app.run_polling()

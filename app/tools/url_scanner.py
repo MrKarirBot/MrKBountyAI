@@ -1,7 +1,6 @@
 import requests
 from urllib.parse import urlparse
 
-
 SECURITY_HEADERS = [
     "content-security-policy",
     "strict-transport-security",
@@ -14,10 +13,8 @@ SECURITY_HEADERS = [
 
 def normalize_url(url: str) -> str:
     url = url.strip()
-
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
-
     return url
 
 
@@ -33,61 +30,54 @@ def analyze_url_security(url: str) -> str:
             target_url,
             timeout=10,
             allow_redirects=True,
-            headers={
-                "User-Agent": "MrKBountyAI-SecurityCopilot/1.0"
-            },
+            headers={"User-Agent": "MrKBountyAI-SecurityCopilot/1.0"},
         )
 
-        headers = {
-            key.lower(): value
-            for key, value in response.headers.items()
-        }
+        headers = {k.lower(): v for k, v in response.headers.items()}
 
-        result = []
-        result.append("🔍 URL Security Analysis")
-        result.append("")
-        result.append(f"Target: {target_url}")
-        result.append(f"Final URL: {response.url}")
-        result.append(f"Status Code: {response.status_code}")
-        result.append(f"HTTPS: {'✅ Ya' if response.url.startswith('https://') else '❌ Tidak'}")
-        result.append(f"Server: {headers.get('server', 'Tidak terlihat')}")
-        result.append("")
+        result = [
+            "🔍 URL Security Analysis",
+            "",
+            f"Target: {target_url}",
+            f"Final URL: {response.url}",
+            f"Status Code: {response.status_code}",
+            f"HTTPS: {'✅ Ya' if response.url.startswith('https://') else '❌ Tidak'}",
+            f"Server: {headers.get('server', 'Tidak terlihat')}",
+            "",
+            "🛡 Security Headers",
+        ]
 
-        result.append("🛡 Security Headers")
         for header in SECURITY_HEADERS:
-            value = headers.get(header)
-
-            if value:
+            if headers.get(header):
                 result.append(f"✅ {header}: ada")
             else:
                 result.append(f"❌ {header}: tidak ada")
 
-        result.append("")
-        result.append("🍪 Cookie Security")
+        result.extend([
+            "",
+            "🍪 Cookie Security",
+        ])
 
-        cookies = response.cookies
-
-        if not cookies:
+        if not response.cookies:
             result.append("ℹ️ Tidak ada cookie dari response utama.")
         else:
-            for cookie in cookies:
+            for cookie in response.cookies:
                 secure = "✅ Secure" if cookie.secure else "❌ Secure missing"
-                httponly = "ℹ️ HttpOnly tidak bisa dipastikan dari requests"
-                result.append(f"- {cookie.name}: {secure}, {httponly}")
+                result.append(f"- {cookie.name}: {secure}")
 
-        result.append("")
-        result.append("📌 Catatan")
-        result.append("- Ini analisis pasif berdasarkan response header.")
-        result.append("- Gunakan hanya pada target yang kamu miliki izin.")
-        result.append("- Header yang hilang bukan selalu bug, tapi sinyal untuk ditinjau.")
+        result.extend([
+            "",
+            "📌 Catatan",
+            "- Ini analisis pasif berdasarkan response header.",
+            "- Gunakan hanya pada target yang kamu punya izin.",
+            "- Header hilang bukan bukti bug, tapi sinyal untuk ditinjau.",
+        ])
 
         return "\n".join(result)
 
     except requests.exceptions.Timeout:
         return "⚠️ Request timeout. Target terlalu lama merespons."
-
     except requests.exceptions.SSLError:
-        return "⚠️ SSL error. Sertifikat HTTPS bermasalah atau tidak valid."
-
+        return "⚠️ SSL error. Sertifikat HTTPS bermasalah."
     except requests.exceptions.RequestException as error:
         return f"⚠️ Gagal menganalisis URL.\n\nDetail: {error}"

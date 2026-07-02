@@ -14,12 +14,18 @@ from groq import Groq
 
 from app.database.database import init_database
 from app.database.memory import save_message, get_history
-from app.services.agent import detect_intent, build_agent_prompt
 from app.knowledge.vector_store import (
     init_vector_database,
     ingest_knowledge_base,
     search_similar_chunks,
 )
+
+from app.agents.master_agent import detect_agent, build_master_prompt
+from app.agents.mentor_agent import build_mentor_prompt
+from app.agents.owasp_agent import build_owasp_prompt
+from app.agents.report_agent import build_report_prompt
+from app.agents.checklist_agent import build_checklist_prompt
+from app.agents.memory_agent import build_memory_prompt
 
 load_dotenv()
 
@@ -43,26 +49,24 @@ def main_menu():
             InlineKeyboardButton("📝 Report", callback_data="report"),
         ],
         [
-            InlineKeyboardButton("🤖 AI Mentor", callback_data="ai_mentor"),
-            InlineKeyboardButton("📚 Knowledge", callback_data="knowledge"),
-        ],
-        [
+            InlineKeyboardButton("🤖 Mentor", callback_data="ai_mentor"),
             InlineKeyboardButton("🧠 Memory", callback_data="memory"),
-            InlineKeyboardButton("🧭 Agent", callback_data="agent"),
         ],
         [
+            InlineKeyboardButton("🧭 Multi-Agent", callback_data="agent"),
             InlineKeyboardButton("🔎 Vector RAG", callback_data="vector_rag"),
+        ],
+        [
             InlineKeyboardButton("❓ Help", callback_data="help"),
         ],
     ]
-
     return InlineKeyboardMarkup(keyboard)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🛡 Welcome to MrKBountyAI!\n\n"
-        "AI Agent for ethical hackers, bug bounty hunters, and cybersecurity learners.\n\n"
+        "Multi-Agent AI for ethical hackers, bug bounty hunters, and cybersecurity learners.\n\n"
         "Pilih menu di bawah ini:",
         reply_markup=main_menu(),
     )
@@ -73,94 +77,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     responses = {
-        "learn": (
-            "📚 Learn Bug Bounty\n\n"
-            "1. HTTP & HTTPS\n"
-            "2. DNS & Subdomain\n"
-            "3. OWASP Top 10\n"
-            "4. Burp Suite dasar\n"
-            "5. Responsible Disclosure"
-        ),
-        "owasp": (
-            "🛡 OWASP Top 10\n\n"
-            "1. Broken Access Control\n"
-            "2. Cryptographic Failures\n"
-            "3. Injection\n"
-            "4. Insecure Design\n"
-            "5. Security Misconfiguration\n"
-            "6. Vulnerable Components\n"
-            "7. Authentication Failures\n"
-            "8. Software & Data Integrity Failures\n"
-            "9. Logging & Monitoring Failures\n"
-            "10. SSRF"
-        ),
-        "checklist": (
-            "✅ Security Checklist\n\n"
-            "1. Baca scope program\n"
-            "2. Uji hanya target yang diizinkan\n"
-            "3. Cek login/logout\n"
-            "4. Cek access control\n"
-            "5. Cek upload file\n"
-            "6. Cek endpoint API\n"
-            "7. Simpan bukti\n"
-            "8. Laporkan dengan responsible disclosure"
-        ),
-        "report": (
-            "📝 Bug Report Template\n\n"
-            "Title:\n"
-            "Summary:\n"
-            "Target:\n"
-            "Steps to Reproduce:\n"
-            "Impact:\n"
-            "Evidence:\n"
-            "Recommendation:"
-        ),
-        "ai_mentor": (
-            "🤖 AI Mentor aktif.\n\n"
-            "Ketik pertanyaan langsung di chat.\n\n"
-            "Contoh:\n"
-            "• Apa itu IDOR?\n"
-            "• Jelaskan SSRF dengan analogi sederhana.\n"
-            "• Buat checklist XSS untuk pemula."
-        ),
-        "knowledge": (
-            "📚 Knowledge Base aktif.\n\n"
-            "Bot membaca file Markdown dari folder:\n"
-            "`app/knowledge/*.md`\n\n"
-            "Contoh:\n"
-            "• Jelaskan Broken Access Control\n"
-            "• Apa mitigasi SSRF?\n"
-            "• Apa itu XSS menurut OWASP?"
-        ),
-        "memory": (
-            "🧠 Memory AI aktif.\n\n"
-            "Percakapan disimpan ke PostgreSQL agar bot bisa mengingat konteks.\n\n"
-            "Tes:\n"
-            "1. Ketik: Nama saya Kusnadi.\n"
-            "2. Ketik: Siapa nama saya?"
-        ),
-        "agent": (
-            "🧭 AI Agent aktif.\n\n"
-            "Bot bisa mendeteksi maksud pertanyaan otomatis.\n\n"
-            "Contoh:\n"
-            "• Apa itu XSS?\n"
-            "• Buat checklist pengujian IDOR.\n"
-            "• Buat bug report untuk Broken Access Control."
-        ),
-        "vector_rag": (
-            "🔎 Vector RAG aktif.\n\n"
-            "Bot sekarang mencari konteks berdasarkan kemiripan makna, bukan sekadar keyword.\n\n"
-            "Contoh:\n"
-            "• Bagaimana mencegah SSRF?\n"
-            "• Jelaskan risiko akses data tanpa izin.\n"
-            "• Cara mitigasi script injection?"
-        ),
-        "help": (
-            "❓ Help\n\n"
-            "/start - Menu utama\n"
-            "/help - Bantuan\n\n"
-            "Ketik pertanyaan langsung untuk memakai AI Agent + Vector RAG."
-        ),
+        "learn": "📚 Learn Agent aktif.\n\nKetik pertanyaan seperti:\n• Apa itu XSS?\n• Jelaskan IDOR\n• Apa itu SSRF?",
+        "owasp": "🛡 OWASP Agent aktif.\n\nContoh:\n• Jelaskan Broken Access Control\n• Apa mitigasi SSRF?\n• OWASP Injection itu apa?",
+        "checklist": "✅ Checklist Agent aktif.\n\nContoh:\n• Buat checklist pengujian API\n• Buat checklist IDOR\n• Checklist XSS untuk pemula",
+        "report": "📝 Report Agent aktif.\n\nContoh:\n• Buat bug report Broken Access Control\n• Buat template laporan XSS\n• Susun laporan bug bounty",
+        "ai_mentor": "🤖 Mentor Agent aktif.\n\nKetik pertanyaan cybersecurity langsung di chat.",
+        "memory": "🧠 Memory Agent aktif.\n\nContoh:\n• Nama saya Kusnadi\n• Siapa nama saya?\n\nMemory disimpan di PostgreSQL.",
+        "agent": "🧭 Multi-Agent aktif.\n\nBot akan memilih agent otomatis:\n• Mentor Agent\n• OWASP Agent\n• Report Agent\n• Checklist Agent\n• Memory Agent",
+        "vector_rag": "🔎 Vector RAG aktif.\n\nBot mencari konteks berdasarkan kemiripan makna dari Knowledge Base.",
+        "help": "❓ Help\n\n/start - Menu utama\n/help - Bantuan\n\nKetik pertanyaan langsung untuk memakai Multi-Agent AI.",
     }
 
     await query.edit_message_text(
@@ -195,21 +120,38 @@ def build_knowledge_context(user_text: str) -> str:
         return f"Knowledge Base vector search error: {error}"
 
 
+def build_specialist_prompt(agent_name: str, user_text: str, knowledge_context: str) -> str:
+    if agent_name == "owasp_agent":
+        return build_owasp_prompt(user_text, knowledge_context)
+
+    if agent_name == "report_agent":
+        return build_report_prompt(user_text, knowledge_context)
+
+    if agent_name == "checklist_agent":
+        return build_checklist_prompt(user_text, knowledge_context)
+
+    if agent_name == "memory_agent":
+        return build_memory_prompt(user_text, knowledge_context)
+
+    return build_mentor_prompt(user_text, knowledge_context)
+
+
 def build_ai_messages(user_id: int, user_text: str):
-    intent = detect_intent(user_text)
-    agent_prompt = build_agent_prompt(intent, user_text)
+    agent_name = detect_agent(user_text)
     knowledge_context = build_knowledge_context(user_text)
+
+    master_prompt = build_master_prompt(agent_name, user_text, knowledge_context)
+    specialist_prompt = build_specialist_prompt(agent_name, user_text, knowledge_context)
 
     system_message = {
         "role": "system",
         "content": (
-            f"{agent_prompt}\n\n"
-            "Gunakan Knowledge Base berikut sebagai referensi utama jika relevan.\n"
-            "Knowledge Base diambil dengan Vector Search berdasarkan kemiripan makna.\n"
-            "Jika Knowledge Base tidak cukup menjawab, gunakan pengetahuan cybersecurity umum yang benar.\n\n"
-            "================ VECTOR KNOWLEDGE BASE ================\n"
-            f"{knowledge_context}\n"
-            "======================================================="
+            f"{master_prompt}\n\n"
+            "================ SPECIALIST AGENT ================\n"
+            f"{specialist_prompt}\n"
+            "==================================================\n\n"
+            "Gunakan Vector Knowledge Base sebagai referensi utama jika relevan. "
+            "Jika konteks belum cukup, gunakan pengetahuan cybersecurity umum yang benar dan aman."
         ),
     }
 
@@ -257,7 +199,7 @@ async def generate_ai_answer(user_id: int, user_text: str) -> str:
             await asyncio.sleep(1 + attempt)
 
     return (
-        "⚠️ AI Agent sedang sibuk atau terkena limit sementara.\n\n"
+        "⚠️ Multi-Agent sedang sibuk atau terkena limit sementara.\n\n"
         f"Detail singkat: {last_error[:300]}"
     )
 
@@ -273,7 +215,7 @@ async def ai_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     thinking_message = await update.message.reply_text(
-        "🤖 Agent sedang menganalisis Vector Knowledge Base..."
+        "🤖 Multi-Agent sedang memilih specialist agent..."
     )
 
     try:
@@ -289,7 +231,7 @@ async def ai_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as error:
         await thinking_message.edit_text(
-            "⚠️ AI Agent error.\n\n"
+            "⚠️ Multi-Agent error.\n\n"
             f"Detail:\n{error}"
         )
 
@@ -299,7 +241,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "❓ Help\n\n"
         "/start - Menu utama\n"
         "/help - Bantuan\n\n"
-        "Ketik pertanyaan langsung untuk memakai AI Agent + Vector RAG."
+        "Ketik pertanyaan langsung untuk memakai Multi-Agent AI."
     )
 
 
@@ -318,7 +260,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_mentor))
 
-    print("MrKBountyAI is running with AI Agent, Memory, and Vector RAG...")
+    print("MrKBountyAI is running with Multi-Agent AI, Memory, and Vector RAG...")
     app.run_polling()
 
 

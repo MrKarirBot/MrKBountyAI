@@ -37,12 +37,23 @@ def embed_text(text: str):
     return np.array(embedding, dtype=np.float32)
 
 
-def init_vector_database():
+def ensure_vector_extension():
     conn = get_connection()
-    register_vector(conn)
     cur = conn.cursor()
 
     cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
+    conn.commit()
+
+    cur.close()
+    conn.close()
+
+
+def init_vector_database():
+    ensure_vector_extension()
+
+    conn = get_connection()
+    register_vector(conn)
+    cur = conn.cursor()
 
     cur.execute(f"""
     CREATE TABLE IF NOT EXISTS knowledge_chunks (
@@ -61,6 +72,8 @@ def init_vector_database():
 
 
 def ingest_knowledge_base():
+    init_vector_database()
+
     conn = get_connection()
     register_vector(conn)
     cur = conn.cursor()
@@ -91,6 +104,8 @@ def ingest_knowledge_base():
 
 
 def search_similar_chunks(query: str, limit: int = 3):
+    init_vector_database()
+
     conn = get_connection()
     register_vector(conn)
     cur = conn.cursor()

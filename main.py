@@ -19,13 +19,7 @@ from app.knowledge.vector_store import (
     ingest_knowledge_base,
     search_similar_chunks,
 )
-
-from app.agents.master_agent import detect_agent, build_master_prompt
-from app.agents.mentor_agent import build_mentor_prompt
-from app.agents.owasp_agent import build_owasp_prompt
-from app.agents.report_agent import build_report_prompt
-from app.agents.checklist_agent import build_checklist_prompt
-from app.agents.memory_agent import build_memory_prompt
+from app.agents.autonomous_agent import build_autonomous_prompt
 
 load_dotenv()
 
@@ -40,25 +34,11 @@ ai_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 def main_menu():
     keyboard = [
-        [
-            InlineKeyboardButton("📚 Learn", callback_data="learn"),
-            InlineKeyboardButton("🛡 OWASP", callback_data="owasp"),
-        ],
-        [
-            InlineKeyboardButton("✅ Checklist", callback_data="checklist"),
-            InlineKeyboardButton("📝 Report", callback_data="report"),
-        ],
-        [
-            InlineKeyboardButton("🤖 Mentor", callback_data="ai_mentor"),
-            InlineKeyboardButton("🧠 Memory", callback_data="memory"),
-        ],
-        [
-            InlineKeyboardButton("🧭 Multi-Agent", callback_data="agent"),
-            InlineKeyboardButton("🔎 Vector RAG", callback_data="vector_rag"),
-        ],
-        [
-            InlineKeyboardButton("❓ Help", callback_data="help"),
-        ],
+        [InlineKeyboardButton("🤖 Autonomous Agent", callback_data="autonomous")],
+        [InlineKeyboardButton("📚 Learn", callback_data="learn"), InlineKeyboardButton("🛡 OWASP", callback_data="owasp")],
+        [InlineKeyboardButton("✅ Checklist", callback_data="checklist"), InlineKeyboardButton("📝 Report", callback_data="report")],
+        [InlineKeyboardButton("🧠 Memory", callback_data="memory"), InlineKeyboardButton("🔎 Vector RAG", callback_data="vector_rag")],
+        [InlineKeyboardButton("❓ Help", callback_data="help")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -66,7 +46,7 @@ def main_menu():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🛡 Welcome to MrKBountyAI!\n\n"
-        "Multi-Agent AI for ethical hackers, bug bounty hunters, and cybersecurity learners.\n\n"
+        "Autonomous Security Agent untuk ethical hacking, bug bounty, dan cybersecurity learning.\n\n"
         "Pilih menu di bawah ini:",
         reply_markup=main_menu(),
     )
@@ -77,15 +57,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     responses = {
-        "learn": "📚 Learn Agent aktif.\n\nKetik pertanyaan seperti:\n• Apa itu XSS?\n• Jelaskan IDOR\n• Apa itu SSRF?",
-        "owasp": "🛡 OWASP Agent aktif.\n\nContoh:\n• Jelaskan Broken Access Control\n• Apa mitigasi SSRF?\n• OWASP Injection itu apa?",
-        "checklist": "✅ Checklist Agent aktif.\n\nContoh:\n• Buat checklist pengujian API\n• Buat checklist IDOR\n• Checklist XSS untuk pemula",
-        "report": "📝 Report Agent aktif.\n\nContoh:\n• Buat bug report Broken Access Control\n• Buat template laporan XSS\n• Susun laporan bug bounty",
-        "ai_mentor": "🤖 Mentor Agent aktif.\n\nKetik pertanyaan cybersecurity langsung di chat.",
-        "memory": "🧠 Memory Agent aktif.\n\nContoh:\n• Nama saya Kusnadi\n• Siapa nama saya?\n\nMemory disimpan di PostgreSQL.",
-        "agent": "🧭 Multi-Agent aktif.\n\nBot akan memilih agent otomatis:\n• Mentor Agent\n• OWASP Agent\n• Report Agent\n• Checklist Agent\n• Memory Agent",
-        "vector_rag": "🔎 Vector RAG aktif.\n\nBot mencari konteks berdasarkan kemiripan makna dari Knowledge Base.",
-        "help": "❓ Help\n\n/start - Menu utama\n/help - Bantuan\n\nKetik pertanyaan langsung untuk memakai Multi-Agent AI.",
+        "autonomous": (
+            "🤖 Autonomous Security Agent aktif.\n\n"
+            "Contoh:\n"
+            "• Analisis kerentanan IDOR\n"
+            "• Buat checklist dan report untuk XSS\n"
+            "• Jelaskan SSRF dari sisi OWASP dan mitigasi"
+        ),
+        "learn": "📚 Learn Agent aktif.\n\nContoh: Apa itu XSS?",
+        "owasp": "🛡 OWASP Agent aktif.\n\nContoh: Jelaskan Broken Access Control.",
+        "checklist": "✅ Checklist Agent aktif.\n\nContoh: Buat checklist pengujian API.",
+        "report": "📝 Report Agent aktif.\n\nContoh: Buat bug report Broken Access Control.",
+        "memory": "🧠 Memory aktif.\n\nPercakapan disimpan di PostgreSQL.",
+        "vector_rag": "🔎 Vector RAG aktif.\n\nBot mencari konteks berdasarkan kemiripan makna.",
+        "help": "❓ Help\n\n/start - Menu utama\n\nKetik pertanyaan langsung untuk memakai Autonomous Security Agent.",
     }
 
     await query.edit_message_text(
@@ -104,55 +89,25 @@ def build_knowledge_context(user_text: str) -> str:
         context_blocks = []
 
         for chunk in chunks:
-            source = chunk["source"]
-            content = chunk["content"]
-            distance = chunk["distance"]
-
             context_blocks.append(
-                f"Sumber: {source}\n"
-                f"Relevansi distance: {distance}\n\n"
-                f"{content}"
+                f"Sumber: {chunk['source']}\n"
+                f"Relevansi distance: {chunk['distance']}\n\n"
+                f"{chunk['content']}"
             )
 
         return "\n\n---\n\n".join(context_blocks)
 
     except Exception as error:
-        return f"Knowledge Base vector search error: {error}"
-
-
-def build_specialist_prompt(agent_name: str, user_text: str, knowledge_context: str) -> str:
-    if agent_name == "owasp_agent":
-        return build_owasp_prompt(user_text, knowledge_context)
-
-    if agent_name == "report_agent":
-        return build_report_prompt(user_text, knowledge_context)
-
-    if agent_name == "checklist_agent":
-        return build_checklist_prompt(user_text, knowledge_context)
-
-    if agent_name == "memory_agent":
-        return build_memory_prompt(user_text, knowledge_context)
-
-    return build_mentor_prompt(user_text, knowledge_context)
+        return f"Knowledge Base search error: {error}"
 
 
 def build_ai_messages(user_id: int, user_text: str):
-    agent_name = detect_agent(user_text)
     knowledge_context = build_knowledge_context(user_text)
-
-    master_prompt = build_master_prompt(agent_name, user_text, knowledge_context)
-    specialist_prompt = build_specialist_prompt(agent_name, user_text, knowledge_context)
+    autonomous_prompt = build_autonomous_prompt(user_text, knowledge_context)
 
     system_message = {
         "role": "system",
-        "content": (
-            f"{master_prompt}\n\n"
-            "================ SPECIALIST AGENT ================\n"
-            f"{specialist_prompt}\n"
-            "==================================================\n\n"
-            "Gunakan Vector Knowledge Base sebagai referensi utama jika relevan. "
-            "Jika konteks belum cukup, gunakan pengetahuan cybersecurity umum yang benar dan aman."
-        ),
+        "content": autonomous_prompt,
     }
 
     history = get_history(user_id, limit=10)
@@ -163,12 +118,10 @@ def build_ai_messages(user_id: int, user_text: str):
         message = item["message"]
 
         if role in ["user", "assistant"] and message:
-            memory_messages.append(
-                {
-                    "role": role,
-                    "content": message,
-                }
-            )
+            memory_messages.append({
+                "role": role,
+                "content": message,
+            })
 
     current_message = {
         "role": "user",
@@ -189,7 +142,7 @@ async def generate_ai_answer(user_id: int, user_text: str) -> str:
                 model=AI_MODEL,
                 messages=messages,
                 temperature=0.4,
-                max_tokens=900,
+                max_tokens=1200,
             )
 
             return response.choices[0].message.content or "Maaf, AI tidak memberi jawaban."
@@ -199,7 +152,7 @@ async def generate_ai_answer(user_id: int, user_text: str) -> str:
             await asyncio.sleep(1 + attempt)
 
     return (
-        "⚠️ Multi-Agent sedang sibuk atau terkena limit sementara.\n\n"
+        "⚠️ Autonomous Agent sedang sibuk atau terkena limit sementara.\n\n"
         f"Detail singkat: {last_error[:300]}"
     )
 
@@ -209,13 +162,11 @@ async def ai_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     if not ai_client:
-        await update.message.reply_text(
-            "⚠️ GROQ_API_KEY belum diatur di Railway Variables."
-        )
+        await update.message.reply_text("⚠️ GROQ_API_KEY belum diatur di Railway Variables.")
         return
 
     thinking_message = await update.message.reply_text(
-        "🤖 Multi-Agent sedang memilih specialist agent..."
+        "🤖 Autonomous Security Agent sedang menganalisis..."
     )
 
     try:
@@ -231,7 +182,7 @@ async def ai_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as error:
         await thinking_message.edit_text(
-            "⚠️ Multi-Agent error.\n\n"
+            "⚠️ Autonomous Agent error.\n\n"
             f"Detail:\n{error}"
         )
 
@@ -239,9 +190,8 @@ async def ai_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "❓ Help\n\n"
-        "/start - Menu utama\n"
-        "/help - Bantuan\n\n"
-        "Ketik pertanyaan langsung untuk memakai Multi-Agent AI."
+        "/start - Menu utama\n\n"
+        "Ketik pertanyaan langsung untuk memakai Autonomous Security Agent."
     )
 
 
@@ -260,7 +210,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_mentor))
 
-    print("MrKBountyAI is running with Multi-Agent AI, Memory, and Vector RAG...")
+    print("MrKBountyAI is running with Autonomous Security Agent...")
     app.run_polling()
 
 

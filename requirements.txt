@@ -2,3 +2,6 @@ python-telegram-bot==21.6
 python-dotenv
 groq
 psycopg2-binary
+pgvector
+fastembed
+numpy

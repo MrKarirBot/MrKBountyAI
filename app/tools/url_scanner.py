@@ -28,7 +28,7 @@ def analyze_url_security(url: str) -> str:
     try:
         response = requests.get(
             target_url,
-            timeout=10,
+            timeout=20,
             allow_redirects=True,
             headers={"User-Agent": "MrKBountyAI-SecurityCopilot/1.0"},
         )

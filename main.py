@@ -1,3 +1,4 @@
+print("MAIN VERSION 275 FIXED")
 import os
 import asyncio
 from dotenv import load_dotenv

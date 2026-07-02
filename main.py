@@ -15,6 +15,7 @@ from groq import Groq
 from app.database.database import init_database
 from app.database.memory import save_message, get_history
 from app.services.agent import detect_intent, build_agent_prompt
+from app.knowledge.kb import search_knowledge_base
 
 load_dotenv()
 
@@ -39,14 +40,14 @@ def main_menu():
         ],
         [
             InlineKeyboardButton("🤖 AI Mentor", callback_data="ai_mentor"),
-            InlineKeyboardButton("🛠 Tools", callback_data="tools"),
+            InlineKeyboardButton("📚 Knowledge", callback_data="knowledge"),
         ],
         [
             InlineKeyboardButton("🧠 Memory", callback_data="memory"),
             InlineKeyboardButton("🧭 Agent", callback_data="agent"),
         ],
         [
-            InlineKeyboardButton("ℹ️ About", callback_data="about"),
+            InlineKeyboardButton("🛠 Tools", callback_data="tools"),
             InlineKeyboardButton("❓ Help", callback_data="help"),
         ],
     ]
@@ -118,14 +119,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• Jelaskan SSRF dengan analogi sederhana.\n"
             "• Buat checklist XSS untuk pemula."
         ),
-        "tools": (
-            "🛠 Tools Reference\n\n"
-            "• Burp Suite\n"
-            "• OWASP ZAP\n"
-            "• Nmap\n"
-            "• Wireshark\n"
-            "• Postman\n\n"
-            "Gunakan hanya pada target yang punya izin resmi."
+        "knowledge": (
+            "📚 Knowledge Base aktif.\n\n"
+            "Bot akan mencari jawaban dari file di folder:\n"
+            "`app/knowledge/*.md`\n\n"
+            "Contoh:\n"
+            "• Jelaskan Broken Access Control\n"
+            "• Apa mitigasi SSRF?\n"
+            "• Apa itu XSS menurut OWASP?"
         ),
         "memory": (
             "🧠 Memory AI aktif.\n\n"
@@ -136,17 +137,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ),
         "agent": (
             "🧭 AI Agent aktif.\n\n"
-            "Bot sekarang bisa mendeteksi maksud pertanyaan otomatis.\n\n"
+            "Bot bisa mendeteksi maksud pertanyaan otomatis.\n\n"
             "Contoh:\n"
             "• Apa itu XSS?\n"
             "• Buat checklist pengujian IDOR.\n"
             "• Buat bug report untuk Broken Access Control.\n"
             "• Jelaskan OWASP Top 10."
         ),
-        "about": (
-            "ℹ️ About MrKBountyAI\n\n"
-            "MrKBountyAI adalah AI Agent untuk belajar ethical hacking, bug bounty, OWASP, dan cybersecurity.\n\n"
-            "⚠️ Edukasi dan authorized testing only."
+        "tools": (
+            "🛠 Tools Reference\n\n"
+            "• Burp Suite\n"
+            "• OWASP ZAP\n"
+            "• Nmap\n"
+            "• Wireshark\n"
+            "• Postman\n\n"
+            "Gunakan hanya pada target yang punya izin resmi."
         ),
         "help": (
             "❓ Help\n\n"
@@ -162,12 +167,40 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+def build_knowledge_context(user_text: str) -> str:
+    docs = search_knowledge_base(user_text, max_results=2)
+
+    if not docs:
+        return "Tidak ada konteks khusus yang ditemukan di Knowledge Base."
+
+    context_blocks = []
+
+    for doc in docs:
+        source = doc.get("source", "unknown")
+        content = doc.get("content", "")
+
+        context_blocks.append(
+            f"Sumber: {source}\n\n{content}"
+        )
+
+    return "\n\n---\n\n".join(context_blocks)
+
+
 def build_ai_messages(user_id: int, user_text: str):
     intent = detect_intent(user_text)
+    agent_prompt = build_agent_prompt(intent, user_text)
+    knowledge_context = build_knowledge_context(user_text)
 
     system_message = {
         "role": "system",
-        "content": build_agent_prompt(intent, user_text),
+        "content": (
+            f"{agent_prompt}\n\n"
+            "Gunakan Knowledge Base berikut sebagai referensi utama jika relevan.\n"
+            "Jika Knowledge Base tidak cukup menjawab, gunakan pengetahuan cybersecurity umum yang benar.\n\n"
+            "================ KNOWLEDGE BASE ================\n"
+            f"{knowledge_context}\n"
+            "================================================"
+        ),
     }
 
     history = get_history(user_id, limit=10)
@@ -229,7 +262,7 @@ async def ai_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    thinking_message = await update.message.reply_text("🤖 Agent sedang menganalisis...")
+    thinking_message = await update.message.reply_text("🤖 Agent sedang menganalisis Knowledge Base...")
 
     try:
         answer = await generate_ai_answer(user_id, user_text)
@@ -254,7 +287,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "❓ Help\n\n"
         "/start - Menu utama\n"
         "/help - Bantuan\n\n"
-        "Ketik pertanyaan langsung untuk memakai AI Agent."
+        "Ketik pertanyaan langsung untuk memakai AI Agent + Knowledge Base."
     )
 
 
@@ -271,7 +304,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_mentor))
 
-    print("MrKBountyAI is running with AI Agent and PostgreSQL Memory...")
+    print("MrKBountyAI is running with AI Agent, Memory, and Knowledge Base...")
     app.run_polling()
 
 

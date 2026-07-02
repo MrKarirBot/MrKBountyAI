@@ -20,6 +20,7 @@ from app.knowledge.vector_store import (
     search_similar_chunks,
 )
 from app.agents.autonomous_agent import build_autonomous_prompt
+from app.tools.url_scanner import analyze_url_security
 
 load_dotenv()
 
@@ -35,10 +36,22 @@ ai_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 def main_menu():
     keyboard = [
         [InlineKeyboardButton("🤖 Autonomous Agent", callback_data="autonomous")],
-        [InlineKeyboardButton("📚 Learn", callback_data="learn"), InlineKeyboardButton("🛡 OWASP", callback_data="owasp")],
-        [InlineKeyboardButton("✅ Checklist", callback_data="checklist"), InlineKeyboardButton("📝 Report", callback_data="report")],
-        [InlineKeyboardButton("🧠 Memory", callback_data="memory"), InlineKeyboardButton("🔎 Vector RAG", callback_data="vector_rag")],
-        [InlineKeyboardButton("❓ Help", callback_data="help")],
+        [
+            InlineKeyboardButton("🔍 URL Scan", callback_data="scan_info"),
+            InlineKeyboardButton("🔎 Vector RAG", callback_data="vector_rag"),
+        ],
+        [
+            InlineKeyboardButton("📚 Learn", callback_data="learn"),
+            InlineKeyboardButton("🛡 OWASP", callback_data="owasp"),
+        ],
+        [
+            InlineKeyboardButton("✅ Checklist", callback_data="checklist"),
+            InlineKeyboardButton("📝 Report", callback_data="report"),
+        ],
+        [
+            InlineKeyboardButton("🧠 Memory", callback_data="memory"),
+            InlineKeyboardButton("❓ Help", callback_data="help"),
+        ],
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -64,13 +77,26 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• Buat checklist dan report untuk XSS\n"
             "• Jelaskan SSRF dari sisi OWASP dan mitigasi"
         ),
+        "scan_info": (
+            "🔍 URL Security Scanner aktif.\n\n"
+            "Gunakan format:\n"
+            "/scan https://example.com\n\n"
+            "Catatan:\n"
+            "Gunakan hanya pada target yang kamu punya izin. "
+            "Bot hanya melakukan analisis pasif header HTTP."
+        ),
         "learn": "📚 Learn Agent aktif.\n\nContoh: Apa itu XSS?",
         "owasp": "🛡 OWASP Agent aktif.\n\nContoh: Jelaskan Broken Access Control.",
         "checklist": "✅ Checklist Agent aktif.\n\nContoh: Buat checklist pengujian API.",
         "report": "📝 Report Agent aktif.\n\nContoh: Buat bug report Broken Access Control.",
         "memory": "🧠 Memory aktif.\n\nPercakapan disimpan di PostgreSQL.",
         "vector_rag": "🔎 Vector RAG aktif.\n\nBot mencari konteks berdasarkan kemiripan makna.",
-        "help": "❓ Help\n\n/start - Menu utama\n\nKetik pertanyaan langsung untuk memakai Autonomous Security Agent.",
+        "help": (
+            "❓ Help\n\n"
+            "/start - Menu utama\n"
+            "/scan https://example.com - Analisis header keamanan URL\n\n"
+            "Ketik pertanyaan langsung untuk memakai Autonomous Security Agent."
+        ),
     }
 
     await query.edit_message_text(
@@ -187,10 +213,34 @@ async def ai_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text(
+            "Gunakan format:\n"
+            "/scan https://example.com\n\n"
+            "Pastikan target berada dalam scope dan kamu punya izin."
+        )
+        return
+
+    url = context.args[0]
+
+    thinking_message = await update.message.reply_text(
+        "🔍 Security Copilot sedang menganalisis URL..."
+    )
+
+    result = analyze_url_security(url)
+
+    if len(result) > MAX_TELEGRAM_MESSAGE:
+        result = result[:MAX_TELEGRAM_MESSAGE] + "\n\n...hasil dipotong karena terlalu panjang."
+
+    await thinking_message.edit_text(result)
+
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "❓ Help\n\n"
-        "/start - Menu utama\n\n"
+        "/start - Menu utama\n"
+        "/scan https://example.com - Analisis header keamanan URL\n\n"
         "Ketik pertanyaan langsung untuk memakai Autonomous Security Agent."
     )
 
@@ -207,10 +257,11 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("scan", scan_command))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_mentor))
 
-    print("MrKBountyAI is running with Autonomous Security Agent...")
+    print("MrKBountyAI is running with Security Copilot URL Scanner...")
     app.run_polling()
 
 

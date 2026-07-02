@@ -15,7 +15,11 @@ from groq import Groq
 from app.database.database import init_database
 from app.database.memory import save_message, get_history
 from app.services.agent import detect_intent, build_agent_prompt
-from app.knowledge.kb import search_knowledge_base
+from app.knowledge.vector_store import (
+    init_vector_database,
+    ingest_knowledge_base,
+    search_similar_chunks,
+)
 
 load_dotenv()
 
@@ -47,7 +51,7 @@ def main_menu():
             InlineKeyboardButton("🧭 Agent", callback_data="agent"),
         ],
         [
-            InlineKeyboardButton("🛠 Tools", callback_data="tools"),
+            InlineKeyboardButton("🔎 Vector RAG", callback_data="vector_rag"),
             InlineKeyboardButton("❓ Help", callback_data="help"),
         ],
     ]
@@ -121,7 +125,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ),
         "knowledge": (
             "📚 Knowledge Base aktif.\n\n"
-            "Bot akan mencari jawaban dari file di folder:\n"
+            "Bot membaca file Markdown dari folder:\n"
             "`app/knowledge/*.md`\n\n"
             "Contoh:\n"
             "• Jelaskan Broken Access Control\n"
@@ -141,23 +145,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Contoh:\n"
             "• Apa itu XSS?\n"
             "• Buat checklist pengujian IDOR.\n"
-            "• Buat bug report untuk Broken Access Control.\n"
-            "• Jelaskan OWASP Top 10."
+            "• Buat bug report untuk Broken Access Control."
         ),
-        "tools": (
-            "🛠 Tools Reference\n\n"
-            "• Burp Suite\n"
-            "• OWASP ZAP\n"
-            "• Nmap\n"
-            "• Wireshark\n"
-            "• Postman\n\n"
-            "Gunakan hanya pada target yang punya izin resmi."
+        "vector_rag": (
+            "🔎 Vector RAG aktif.\n\n"
+            "Bot sekarang mencari konteks berdasarkan kemiripan makna, bukan sekadar keyword.\n\n"
+            "Contoh:\n"
+            "• Bagaimana mencegah SSRF?\n"
+            "• Jelaskan risiko akses data tanpa izin.\n"
+            "• Cara mitigasi script injection?"
         ),
         "help": (
             "❓ Help\n\n"
             "/start - Menu utama\n"
             "/help - Bantuan\n\n"
-            "Ketik pertanyaan langsung untuk memakai AI Agent."
+            "Ketik pertanyaan langsung untuk memakai AI Agent + Vector RAG."
         ),
     }
 
@@ -168,22 +170,29 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def build_knowledge_context(user_text: str) -> str:
-    docs = search_knowledge_base(user_text, max_results=2)
+    try:
+        chunks = search_similar_chunks(user_text, limit=3)
 
-    if not docs:
-        return "Tidak ada konteks khusus yang ditemukan di Knowledge Base."
+        if not chunks:
+            return "Tidak ada konteks relevan di Knowledge Base."
 
-    context_blocks = []
+        context_blocks = []
 
-    for doc in docs:
-        source = doc.get("source", "unknown")
-        content = doc.get("content", "")
+        for chunk in chunks:
+            source = chunk["source"]
+            content = chunk["content"]
+            distance = chunk["distance"]
 
-        context_blocks.append(
-            f"Sumber: {source}\n\n{content}"
-        )
+            context_blocks.append(
+                f"Sumber: {source}\n"
+                f"Relevansi distance: {distance}\n\n"
+                f"{content}"
+            )
 
-    return "\n\n---\n\n".join(context_blocks)
+        return "\n\n---\n\n".join(context_blocks)
+
+    except Exception as error:
+        return f"Knowledge Base vector search error: {error}"
 
 
 def build_ai_messages(user_id: int, user_text: str):
@@ -196,10 +205,11 @@ def build_ai_messages(user_id: int, user_text: str):
         "content": (
             f"{agent_prompt}\n\n"
             "Gunakan Knowledge Base berikut sebagai referensi utama jika relevan.\n"
+            "Knowledge Base diambil dengan Vector Search berdasarkan kemiripan makna.\n"
             "Jika Knowledge Base tidak cukup menjawab, gunakan pengetahuan cybersecurity umum yang benar.\n\n"
-            "================ KNOWLEDGE BASE ================\n"
+            "================ VECTOR KNOWLEDGE BASE ================\n"
             f"{knowledge_context}\n"
-            "================================================"
+            "======================================================="
         ),
     }
 
@@ -262,7 +272,9 @@ async def ai_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    thinking_message = await update.message.reply_text("🤖 Agent sedang menganalisis Knowledge Base...")
+    thinking_message = await update.message.reply_text(
+        "🤖 Agent sedang menganalisis Vector Knowledge Base..."
+    )
 
     try:
         answer = await generate_ai_answer(user_id, user_text)
@@ -287,7 +299,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "❓ Help\n\n"
         "/start - Menu utama\n"
         "/help - Bantuan\n\n"
-        "Ketik pertanyaan langsung untuk memakai AI Agent + Knowledge Base."
+        "Ketik pertanyaan langsung untuk memakai AI Agent + Vector RAG."
     )
 
 
@@ -296,6 +308,8 @@ def main():
         raise ValueError("BOT_TOKEN is missing. Set it in Railway Variables.")
 
     init_database()
+    init_vector_database()
+    ingest_knowledge_base()
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -304,7 +318,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_mentor))
 
-    print("MrKBountyAI is running with AI Agent, Memory, and Knowledge Base...")
+    print("MrKBountyAI is running with AI Agent, Memory, and Vector RAG...")
     app.run_polling()
 
 

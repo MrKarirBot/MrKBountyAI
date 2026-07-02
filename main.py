@@ -240,23 +240,25 @@ await update.message.reply_text(
 )
 
 def main():
-if not BOT_TOKEN:
-raise ValueError("BOT_TOKEN is missing. Set it in Railway Variables.")
+    if not BOT_TOKEN:
+        raise ValueError("BOT_TOKEN is missing. Set it in Railway Variables.")
 
-init_database()  
-init_vector_database()  
-ingest_knowledge_base()  
+    init_database()
+    init_vector_database()
+    ingest_knowledge_base()
 
-app = ApplicationBuilder().token(BOT_TOKEN).build()  
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-app.add_handler(CommandHandler("start", start))  
-app.add_handler(CommandHandler("help", help_command))  
-app.add_handler(CommandHandler("scan", scan_command))  
-app.add_handler(CallbackQueryHandler(button_handler))  
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_mentor))  
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("scan", scan_command))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            ai_mentor,
+        )
+    )
 
-print("MrKBountyAI is running with Security Copilot URL Scanner...")  
-app.run_polling()
-
-if name == "main":
-main()
+    print("MrKBountyAI is running with Security Copilot URL Scanner...")
+    app.run_polling()

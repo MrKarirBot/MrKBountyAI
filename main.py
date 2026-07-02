@@ -1,7 +1,6 @@
 import os
 import asyncio
 from dotenv import load_dotenv
-from app.tools.url_scanner import analyze_url_security
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -82,9 +81,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🔍 URL Security Scanner aktif.\n\n"
             "Gunakan format:\n"
             "/scan https://example.com\n\n"
-            "Catatan:\n"
-            "Gunakan hanya pada target yang kamu punya izin. "
-            "Bot hanya melakukan analisis pasif header HTTP."
+            "Gunakan hanya pada target yang kamu punya izin."
         ),
         "learn": "📚 Learn Agent aktif.\n\nContoh: Apa itu XSS?",
         "owasp": "🛡 OWASP Agent aktif.\n\nContoh: Jelaskan Broken Access Control.",
@@ -95,8 +92,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "help": (
             "❓ Help\n\n"
             "/start - Menu utama\n"
-            "/scan https://example.com - Analisis header keamanan URL\n\n"
-            "Ketik pertanyaan langsung untuk memakai Autonomous Security Agent."
+            "/scan https://example.com - Analisis header keamanan URL"
         ),
     }
 
@@ -150,12 +146,14 @@ def build_ai_messages(user_id: int, user_text: str):
                 "content": message,
             })
 
-    current_message = {
-        "role": "user",
-        "content": user_text,
-    }
-
-    return [system_message] + memory_messages + [current_message]
+    return [
+        system_message,
+        *memory_messages,
+        {
+            "role": "user",
+            "content": user_text,
+        },
+    ]
 
 
 async def generate_ai_answer(user_id: int, user_text: str) -> str:
@@ -163,11 +161,9 @@ async def generate_ai_answer(user_id: int, user_text: str) -> str:
 
     for attempt in range(3):
         try:
-            messages = build_ai_messages(user_id, user_text)
-
             response = ai_client.chat.completions.create(
                 model=AI_MODEL,
-                messages=messages,
+                messages=build_ai_messages(user_id, user_text),
                 temperature=0.4,
                 max_tokens=1200,
             )
@@ -203,7 +199,7 @@ async def ai_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_message(user_id, "assistant", answer)
 
         if len(answer) > MAX_TELEGRAM_MESSAGE:
-            answer = answer[:MAX_TELEGRAM_MESSAGE] + "\n\n...jawaban dipotong karena terlalu panjang."
+            answer = answer[:MAX_TELEGRAM_MESSAGE] + "\n\n...jawaban dipotong."
 
         await thinking_message.edit_text(answer)
 
@@ -225,43 +221,25 @@ async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     url = context.args[0]
 
-    thinking_message = await update.message.reply_text(
-        "🔍 Security Copilot sedang menganalisis URL..."
-    )
-
-    result = analyze_url_security(url)
-
-    if len(result) > MAX_TELEGRAM_MESSAGE:
-        result = result[:MAX_TELEGRAM_MESSAGE] + "\n\n...hasil dipotong karena terlalu panjang."
-
-    await thinking_message.edit_text(result)
-
-async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text(
-            "Gunakan:\n\n"
-            "/scan https://example.com"
-        )
-        return
-
-    url = context.args[0]
-
     loading = await update.message.reply_text(
-        "🔍 Security Copilot sedang menganalisis target..."
+        "🔍 Security Copilot sedang menganalisis URL..."
     )
 
     try:
         result = analyze_url_security(url)
 
         if len(result) > MAX_TELEGRAM_MESSAGE:
-            result = result[:MAX_TELEGRAM_MESSAGE]
+            result = result[:MAX_TELEGRAM_MESSAGE] + "\n\n...hasil dipotong."
 
         await loading.edit_text(result)
 
-    except Exception as e:
+    except Exception as error:
         await loading.edit_text(
-            f"❌ Scan gagal.\n\n{e}"
+            "❌ Scan gagal.\n\n"
+            f"{error}"
         )
+
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "❓ Help\n\n"
@@ -282,17 +260,10 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("help", help_command))
-app.add_handler(CommandHandler("scan", scan_command))
-
-app.add_handler(CallbackQueryHandler(button_handler))
-
-app.add_handler(
-    MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
-        ai_mentor,
-    )
-    )
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("scan", scan_command))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_mentor))
 
     print("MrKBountyAI is running with Security Copilot URL Scanner...")
     app.run_polling()

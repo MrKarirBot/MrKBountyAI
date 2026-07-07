@@ -1,4 +1,4 @@
-print("MAIN VERSION WHATSAPP WEBHOOK FIXED")
+print("MAIN VERSION TELEGRAM + WHATSAPP WEBHOOK")
 
 import os
 import asyncio
@@ -43,7 +43,6 @@ MAX_TELEGRAM_MESSAGE = 3900
 MAX_WHATSAPP_MESSAGE = 3900
 
 ai_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
-
 flask_app = Flask(__name__)
 
 
@@ -135,11 +134,6 @@ def build_ai_messages(user_id: int, user_text: str):
     knowledge_context = build_knowledge_context(user_text)
     autonomous_prompt = build_autonomous_prompt(user_text, knowledge_context)
 
-    system_message = {
-        "role": "system",
-        "content": autonomous_prompt,
-    }
-
     history = get_history(user_id, limit=10)
 
     memory_messages = []
@@ -148,20 +142,12 @@ def build_ai_messages(user_id: int, user_text: str):
         message = item["message"]
 
         if role in ["user", "assistant"] and message:
-            memory_messages.append(
-                {
-                    "role": role,
-                    "content": message,
-                }
-            )
+            memory_messages.append({"role": role, "content": message})
 
     return [
-        system_message,
+        {"role": "system", "content": autonomous_prompt},
         *memory_messages,
-        {
-            "role": "user",
-            "content": user_text,
-        },
+        {"role": "user", "content": user_text},
     ]
 
 
@@ -217,9 +203,7 @@ async def ai_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
     if not ai_client:
-        await update.message.reply_text(
-            "⚠️ GROQ_API_KEY belum diatur di Railway Variables."
-        )
+        await update.message.reply_text("⚠️ GROQ_API_KEY belum diatur di Railway Variables.")
         return
 
     thinking_message = await update.message.reply_text(
@@ -298,9 +282,7 @@ def send_whatsapp_message(to: str, text: str):
         "messaging_product": "whatsapp",
         "to": to,
         "type": "text",
-        "text": {
-            "body": text[:MAX_WHATSAPP_MESSAGE],
-        },
+        "text": {"body": text[:MAX_WHATSAPP_MESSAGE]},
     }
 
     response = requests.post(url, headers=headers, json=payload, timeout=20)
@@ -311,7 +293,7 @@ def send_whatsapp_message(to: str, text: str):
 
 @flask_app.route("/", methods=["GET"])
 def home():
-    return "MrKBountyAI is running.", 200
+    return "MrKBountyAI Telegram + WhatsApp Webhook is running.", 200
 
 
 @flask_app.route("/webhook", methods=["GET"])
@@ -347,7 +329,10 @@ def receive_whatsapp_message():
             return "OK", 200
 
         if message.get("type") != "text":
-            send_whatsapp_message(sender, "⚠️ Saat ini saya hanya bisa membaca pesan teks.")
+            send_whatsapp_message(
+                sender,
+                "⚠️ Saat ini saya hanya bisa membaca pesan teks."
+            )
             return "OK", 200
 
         user_text = message.get("text", {}).get("body", "").strip()

@@ -1,7 +1,12 @@
-print("MAIN VERSION 275 FIXED")
+print("MAIN VERSION WHATSAPP WEBHOOK FIXED")
+
 import os
 import asyncio
+import threading
+import requests
 from dotenv import load_dotenv
+from flask import Flask, request
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -28,10 +33,18 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
+WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
+PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
+VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "mrkbountyai_verify")
+GRAPH_API_VERSION = os.getenv("GRAPH_API_VERSION", "v21.0")
+
 AI_MODEL = "llama-3.1-8b-instant"
 MAX_TELEGRAM_MESSAGE = 3900
+MAX_WHATSAPP_MESSAGE = 3900
 
 ai_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+
+flask_app = Flask(__name__)
 
 
 def main_menu():
@@ -71,13 +84,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     responses = {
-        "autonomous": (
-            "🤖 Autonomous Security Agent aktif.\n\n"
-            "Contoh:\n"
-            "• Analisis kerentanan IDOR\n"
-            "• Buat checklist dan report untuk XSS\n"
-            "• Jelaskan SSRF dari sisi OWASP dan mitigasi"
-        ),
+        "autonomous": "🤖 Autonomous Security Agent aktif.",
         "scan_info": (
             "🔍 URL Security Scanner aktif.\n\n"
             "Gunakan format:\n"
@@ -93,8 +100,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "help": (
             "❓ Help\n\n"
             "/start - Menu utama\n"
-            "/scan https://example.com - Analisis header keamanan URL\n\n"
-            "Ketik pertanyaan langsung untuk memakai Autonomous Security Agent."
+            "/scan https://example.com - Analisis header keamanan URL"
         ),
     }
 
@@ -112,7 +118,6 @@ def build_knowledge_context(user_text: str) -> str:
             return "Tidak ada konteks relevan di Knowledge Base."
 
         context_blocks = []
-
         for chunk in chunks:
             context_blocks.append(
                 f"Sumber: {chunk['source']}\n"
@@ -150,12 +155,14 @@ def build_ai_messages(user_id: int, user_text: str):
                 }
             )
 
-    current_message = {
-        "role": "user",
-        "content": user_text,
-    }
-
-    return [system_message] + memory_messages + [current_message]
+    return [
+        system_message,
+        *memory_messages,
+        {
+            "role": "user",
+            "content": user_text,
+        },
+    ]
 
 
 async def generate_ai_answer(user_id: int, user_text: str) -> str:
@@ -180,6 +187,29 @@ async def generate_ai_answer(user_id: int, user_text: str) -> str:
         "⚠️ Autonomous Agent sedang sibuk atau terkena limit sementara.\n\n"
         f"Detail singkat: {last_error[:300]}"
     )
+
+
+def generate_ai_answer_sync(user_id: int, user_text: str) -> str:
+    if not ai_client:
+        return "⚠️ GROQ_API_KEY belum diatur di Railway Variables."
+
+    try:
+        response = ai_client.chat.completions.create(
+            model=AI_MODEL,
+            messages=build_ai_messages(user_id, user_text),
+            temperature=0.4,
+            max_tokens=1200,
+        )
+
+        answer = response.choices[0].message.content or "Maaf, AI tidak memberi jawaban."
+
+        save_message(user_id, "user", user_text)
+        save_message(user_id, "assistant", answer)
+
+        return answer
+
+    except Exception as error:
+        return f"⚠️ AI error.\n\nDetail: {error}"
 
 
 async def ai_mentor(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -218,8 +248,7 @@ async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text(
             "Gunakan format:\n"
-            "/scan https://example.com\n\n"
-            "Pastikan target berada dalam scope dan kamu punya izin."
+            "/scan https://example.com"
         )
         return
 
@@ -253,6 +282,95 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+def send_whatsapp_message(to: str, text: str):
+    if not WHATSAPP_TOKEN or not PHONE_NUMBER_ID:
+        print("WHATSAPP_TOKEN atau PHONE_NUMBER_ID belum diatur.")
+        return
+
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/{PHONE_NUMBER_ID}/messages"
+
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "text",
+        "text": {
+            "body": text[:MAX_WHATSAPP_MESSAGE],
+        },
+    }
+
+    response = requests.post(url, headers=headers, json=payload, timeout=20)
+
+    if response.status_code >= 400:
+        print(f"WhatsApp send error: {response.status_code} {response.text}")
+
+
+@flask_app.route("/", methods=["GET"])
+def home():
+    return "MrKBountyAI is running.", 200
+
+
+@flask_app.route("/webhook", methods=["GET"])
+def verify_whatsapp_webhook():
+    mode = request.args.get("hub.mode")
+    token = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+
+    if mode == "subscribe" and token == VERIFY_TOKEN:
+        print("WhatsApp webhook verified.")
+        return challenge, 200
+
+    return "Verification failed", 403
+
+
+@flask_app.route("/webhook", methods=["POST"])
+def receive_whatsapp_message():
+    data = request.get_json(silent=True) or {}
+
+    try:
+        entry = data.get("entry", [])[0]
+        changes = entry.get("changes", [])[0]
+        value = changes.get("value", {})
+        messages = value.get("messages", [])
+
+        if not messages:
+            return "OK", 200
+
+        message = messages[0]
+        sender = message.get("from")
+
+        if not sender:
+            return "OK", 200
+
+        if message.get("type") != "text":
+            send_whatsapp_message(sender, "⚠️ Saat ini saya hanya bisa membaca pesan teks.")
+            return "OK", 200
+
+        user_text = message.get("text", {}).get("body", "").strip()
+
+        if not user_text:
+            send_whatsapp_message(sender, "Kirim pesan teks ya.")
+            return "OK", 200
+
+        user_id = int(sender)
+        answer = generate_ai_answer_sync(user_id, user_text)
+        send_whatsapp_message(sender, answer)
+
+    except Exception as error:
+        print(f"WhatsApp webhook error: {error}")
+
+    return "OK", 200
+
+
+def run_flask_server():
+    port = int(os.getenv("PORT", 8080))
+    flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+
+
 def main():
     if not BOT_TOKEN:
         raise ValueError("BOT_TOKEN is missing. Set it in Railway Variables.")
@@ -261,16 +379,18 @@ def main():
     init_vector_database()
     ingest_knowledge_base()
 
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    threading.Thread(target=run_flask_server, daemon=True).start()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("scan", scan_command))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_mentor))
+    telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    print("MrKBountyAI is running with Security Copilot URL Scanner...")
-    app.run_polling()
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(CommandHandler("help", help_command))
+    telegram_app.add_handler(CommandHandler("scan", scan_command))
+    telegram_app.add_handler(CallbackQueryHandler(button_handler))
+    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ai_mentor))
+
+    print("MrKBountyAI is running with Telegram + WhatsApp Webhook...")
+    telegram_app.run_polling()
 
 
 if __name__ == "__main__":

@@ -6,3 +6,4 @@ pgvector
 fastembed
 numpy
 requests
+flask
